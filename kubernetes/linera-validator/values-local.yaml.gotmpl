@@ -1,12 +1,12 @@
 # Values for charts linera-validator for local validators.
 
 # Linera
-lineraImage: "" # Is set by helmfile.
+lineraImage: {{ env "LINERA_HELMFILE_LINERA_IMAGE" | default "linera:latest" }}
 lineraImagePullPolicy: Never
 logLevel: "debug"
 proxyPort: 19100
 metricsPort: 21100
-numShards: 10
+numShards: {{ env "LINERA_HELMFILE_SET_NUM_SHARDS" | default 10 }}
 
 # Loki
 loki-stack:
@@ -38,8 +38,29 @@ kube-prometheus-stack:
       size: 1Gi
     plugins:
       - grafana-piechart-panel
+  {{- if .Values.writeToGrafanaCloud }}
+  kubeStateMetrics:
+    enabled: false
+  {{- end }}
   prometheus:
     prometheusSpec:
+      {{- if .Values.writeToGrafanaCloud }}
+      remoteWrite:
+        - url: https://prometheus-prod-13-prod-us-east-0.grafana.net/api/prom/push
+          basicAuth:
+            username:
+              name: grafana-cloud-auth-secret
+              key: username
+            password:
+              name: grafana-cloud-auth-secret
+              key: password
+          writeRelabelConfigs:
+            - source_labels: [__name__]
+              regex: 'linera_.*'
+              action: keep
+      externalLabels:
+        validator: {{ .Values.validatorLabel }}
+      {{- end }}
       retention: 2d
       retentionSize: 1GB
       storageSpec:
@@ -56,6 +77,7 @@ kube-prometheus-stack:
       # This prevents from adding any Helm label to serviceMonitorSelector if
       # above is empty.
       serviceMonitorSelectorNilUsesHelmValues: false
+      {{- if not .Values.writeToGrafanaCloud }}
       # Relabelings needed for Scylla dashboards
       additionalScrapeConfigs:
         - job_name: scylla
@@ -95,11 +117,12 @@ kube-prometheus-stack:
               regex: '([0-9]+\.[0-9]+)(\.?[0-9]*).*'
               replacement: '$1$2'
               target_label: svr
+      {{- end }}
 
 # Environment
 environment: "kind"
 
 # Validator
 validator:
-  serverConfig: "" # Is set by helmfile.
-  genesisConfig: "" # Is set by helmfile.
+  serverConfig: {{ env "LINERA_HELMFILE_SET_SERVER_CONFIG" | default "working/server_1.json" }}
+  genesisConfig: {{ env "LINERA_HELMFILE_SET_GENESIS_CONFIG" | default "working/genesis.json" }}
