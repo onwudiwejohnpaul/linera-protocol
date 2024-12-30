@@ -230,6 +230,8 @@ impl IncomingBundle {
     }
 }
 
+impl<'de> BcsHashable<'de> for IncomingBundle {}
+
 /// What to do with a message picked from the inbox.
 #[derive(Copy, Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub enum MessageAction {
@@ -395,6 +397,8 @@ impl OutgoingMessage {
     }
 }
 
+impl<'de> BcsHashable<'de> for OutgoingMessage {}
+
 /// A [`Block`], together with the outcome from its execution.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize, SimpleObject)]
 pub struct ExecutedBlock {
@@ -432,6 +436,8 @@ pub struct EventRecord {
     #[serde(with = "serde_bytes")]
     pub value: Vec<u8>,
 }
+
+impl<'de> BcsHashable<'de> for EventRecord {}
 
 /// The hash and chain ID of a `CertificateValue`.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]

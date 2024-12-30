@@ -376,6 +376,8 @@ pub trait HasTypeName {
 /// * We use `BCS` to generate canonical bytes suitable for hashing.
 pub trait BcsHashable<'de>: Serialize + Deserialize<'de> {}
 
+impl<'de, T: BcsHashable<'de>> BcsHashable<'de> for Vec<T> {}
+
 /// Activate the blanket implementation of `Signable` based on serde and BCS.
 /// * We use `serde_name` to extract a seed from the name of structs and enums.
 /// * We use `BCS` to generate canonical bytes suitable for signing.
