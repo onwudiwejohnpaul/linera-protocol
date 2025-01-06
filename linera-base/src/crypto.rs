@@ -376,6 +376,9 @@ pub trait HasTypeName {
 /// * We use `BCS` to generate canonical bytes suitable for hashing.
 pub trait BcsHashable<'de>: Serialize + Deserialize<'de> {}
 
+#[cfg(with_testing)]
+impl<'de> BcsHashable<'de> for () {}
+
 impl<'de, T: BcsHashable<'de>> BcsHashable<'de> for Vec<T> {}
 
 /// Activate the blanket implementation of `Signable` based on serde and BCS.

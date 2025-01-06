@@ -242,9 +242,8 @@ where
         blobs: &[Blob],
         notify_when_messages_are_delivered: Option<oneshot::Sender<()>>,
     ) -> Result<(ChainInfoResponse, NetworkActions), WorkerError> {
-        let executed_block = certificate.executed_block();
-        let block = &executed_block.block;
-        let block_height = executed_block.block.height;
+        let block = certificate.executed_block();
+        let block_height = block.header.height;
         // Check that the chain is active and ready for this confirmation.
         let tip = self.state.chain.tip_state.get().clone();
         if tip.next_block_height < block_height {

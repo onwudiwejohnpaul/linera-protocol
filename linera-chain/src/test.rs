@@ -4,7 +4,7 @@
 //! Test utilities
 
 use linera_base::{
-    crypto::KeyPair,
+    crypto::{CryptoHash, KeyPair},
     data_types::{Amount, BlockHeight, Round, Timestamp},
     hashed::Hashed,
     identifiers::{ChainId, Owner},
@@ -16,39 +16,70 @@ use linera_execution::{
 };
 
 use crate::{
-    block::ConfirmedBlock,
-    data_types::{Block, BlockProposal, IncomingBundle, PostedMessage, SignatureAggregator, Vote},
+    block::{Block, BlockBody, BlockHeader, ConfirmedBlock},
+    data_types::{BlockProposal, IncomingBundle, PostedMessage, SignatureAggregator, Vote},
     types::{CertificateValue, GenericCertificate},
 };
 
 /// Creates a new child of the given block, with the same timestamp.
 pub fn make_child_block(parent: &Hashed<ConfirmedBlock>) -> Block {
     let parent_value = parent.inner();
-    let parent_block = &parent_value.executed_block().block;
-    Block {
+    let parent_block = &parent_value.executed_block().header;
+    let header = BlockHeader {
+        version: parent_block.version,
         epoch: parent_block.epoch,
         chain_id: parent_block.chain_id,
-        incoming_bundles: vec![],
-        operations: vec![],
         previous_block_hash: Some(parent.hash()),
         height: parent_block.height.try_add_one().unwrap(),
         authenticated_signer: parent_block.authenticated_signer,
         timestamp: parent_block.timestamp,
-    }
+        state_hash: parent_block.state_hash,
+        bundles_hash: parent_block.bundles_hash,
+        operations_hash: parent_block.operations_hash,
+        messages_hash: parent_block.messages_hash,
+        oracle_responses_hash: parent_block.oracle_responses_hash,
+        events_hash: parent_block.events_hash,
+    };
+
+    let body = BlockBody {
+        incoming_bundles: vec![],
+        operations: vec![],
+        messages: vec![],
+        oracle_responses: vec![],
+        events: vec![],
+    };
+
+    Block { header, body }
 }
 
 /// Creates a block at height 0 for a new chain.
 pub fn make_first_block(chain_id: ChainId) -> Block {
-    Block {
+    let empty_hash = CryptoHash::new(&());
+    let header = BlockHeader {
+        version: 0,
         epoch: Epoch::ZERO,
         chain_id,
-        incoming_bundles: vec![],
-        operations: vec![],
         previous_block_hash: None,
         height: BlockHeight::ZERO,
         authenticated_signer: None,
         timestamp: Timestamp::default(),
-    }
+        state_hash: empty_hash,
+        bundles_hash: empty_hash,
+        operations_hash: empty_hash,
+        messages_hash: empty_hash,
+        oracle_responses_hash: empty_hash,
+        events_hash: empty_hash,
+    };
+
+    let body = BlockBody {
+        incoming_bundles: vec![],
+        operations: vec![],
+        messages: vec![],
+        oracle_responses: vec![],
+        events: vec![],
+    };
+
+    Block { header, body }
 }
 
 /// A helper trait to simplify constructing blocks for tests.
@@ -86,12 +117,12 @@ pub trait BlockTestExt: Sized {
 
 impl BlockTestExt for Block {
     fn with_authenticated_signer(mut self, authenticated_signer: Option<Owner>) -> Self {
-        self.authenticated_signer = authenticated_signer;
+        self.header.authenticated_signer = authenticated_signer;
         self
     }
 
     fn with_operation(mut self, operation: impl Into<Operation>) -> Self {
-        self.operations.push(operation.into());
+        self.body.operations.push(operation.into());
         self
     }
 
@@ -108,17 +139,17 @@ impl BlockTestExt for Block {
     }
 
     fn with_incoming_bundle(mut self, incoming_bundle: IncomingBundle) -> Self {
-        self.incoming_bundles.push(incoming_bundle);
+        self.body.incoming_bundles.push(incoming_bundle);
         self
     }
 
     fn with_timestamp(mut self, timestamp: impl Into<Timestamp>) -> Self {
-        self.timestamp = timestamp.into();
+        self.header.timestamp = timestamp.into();
         self
     }
 
     fn with_epoch(mut self, epoch: impl Into<Epoch>) -> Self {
-        self.epoch = epoch.into();
+        self.header.epoch = epoch.into();
         self
     }
 

@@ -39,8 +39,9 @@ use linera_views::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    block::Block,
     data_types::{
-        Block, BlockExecutionOutcome, ChainAndHeight, ChannelFullName, EventRecord, IncomingBundle,
+        BlockExecutionOutcome, ChainAndHeight, ChannelFullName, EventRecord, IncomingBundle,
         MessageAction, MessageBundle, Origin, OutgoingMessage, PostedMessage, Target, Transaction,
     },
     inbox::{Cursor, InboxError, InboxStateView},
@@ -240,14 +241,14 @@ impl ChainTipState {
     /// expected parent.
     pub fn verify_block_chaining(&self, new_block: &Block) -> Result<(), ChainError> {
         ensure!(
-            new_block.height == self.next_block_height,
+            new_block.header.height == self.next_block_height,
             ChainError::UnexpectedBlockHeight {
                 expected_block_height: self.next_block_height,
-                found_block_height: new_block.height
+                found_block_height: new_block.header.height
             }
         );
         ensure!(
-            new_block.previous_block_hash == self.block_hash,
+            new_block.header.previous_block_hash == self.block_hash,
             ChainError::UnexpectedPreviousBlockHash
         );
         Ok(())
@@ -276,14 +277,14 @@ impl ChainTipState {
         new_block: &Block,
         outcome: &BlockExecutionOutcome,
     ) -> Result<(), ChainError> {
-        let num_incoming_bundles = u32::try_from(new_block.incoming_bundles.len())
+        let num_incoming_bundles = u32::try_from(new_block.body.incoming_bundles.len())
             .map_err(|_| ArithmeticError::Overflow)?;
         self.num_incoming_bundles
             .checked_add(num_incoming_bundles)
             .ok_or(ArithmeticError::Overflow)?;
 
         let num_operations =
-            u32::try_from(new_block.operations.len()).map_err(|_| ArithmeticError::Overflow)?;
+            u32::try_from(new_block.body.operations.len()).map_err(|_| ArithmeticError::Overflow)?;
         self.num_operations
             .checked_add(num_operations)
             .ok_or(ArithmeticError::Overflow)?;
@@ -584,13 +585,13 @@ where
     pub async fn remove_bundles_from_inboxes(&mut self, block: &Block) -> Result<(), ChainError> {
         let chain_id = self.chain_id();
         let mut bundles_by_origin: BTreeMap<_, Vec<&MessageBundle>> = Default::default();
-        for IncomingBundle { bundle, origin, .. } in &block.incoming_bundles {
+        for IncomingBundle { bundle, origin, .. } in &block.body.incoming_bundles {
             ensure!(
-                bundle.timestamp <= block.timestamp,
+                bundle.timestamp <= block.header.timestamp,
                 ChainError::IncorrectBundleTimestamp {
                     chain_id,
                     bundle_timestamp: bundle.timestamp,
-                    block_timestamp: block.timestamp,
+                    block_timestamp: block.header.timestamp,
                 }
             );
             let bundles = bundles_by_origin.entry(origin).or_default();
@@ -659,10 +660,10 @@ where
         let _execution_latency = BLOCK_EXECUTION_LATENCY.measure_latency();
 
         let chain_id = self.chain_id();
-        assert_eq!(block.chain_id, chain_id);
+        assert_eq!(block.header.chain_id, chain_id);
         // The first incoming message of any child chain must be `OpenChain`. A root chain must
         // already be initialized
-        if block.height == BlockHeight::ZERO
+        if block.header.height == BlockHeight::ZERO
             && self
                 .execution_state
                 .system
@@ -679,39 +680,44 @@ where
                     height: in_bundle.bundle.height,
                     index: posted_message.index,
                 };
-                self.execute_init_message(message_id, config, block.timestamp, local_time)
+                self.execute_init_message(message_id, config, block.header.timestamp, local_time)
                     .await?;
             }
         }
 
         ensure!(
-            *self.execution_state.system.timestamp.get() <= block.timestamp,
+            *self.execution_state.system.timestamp.get() <= block.header.timestamp,
             ChainError::InvalidBlockTimestamp
         );
-        self.execution_state.system.timestamp.set(block.timestamp);
+        self.execution_state
+            .system
+            .timestamp
+            .set(block.header.timestamp);
         let Some((_, committee)) = self.execution_state.system.current_committee() else {
             return Err(ChainError::InactiveChain(chain_id));
         };
         let mut resource_controller = ResourceController {
             policy: Arc::new(committee.policy().clone()),
             tracker: ResourceTracker::default(),
-            account: block.authenticated_signer,
+            account: block.header.authenticated_signer,
         };
         resource_controller
             .track_executed_block_size(EMPTY_EXECUTED_BLOCK_SIZE)
             .and_then(|()| {
-                resource_controller
-                    .track_executed_block_size_sequence_extension(0, block.incoming_bundles.len())
+                resource_controller.track_executed_block_size_sequence_extension(
+                    0,
+                    block.body.incoming_bundles.len(),
+                )
             })
             .and_then(|()| {
                 resource_controller
-                    .track_executed_block_size_sequence_extension(0, block.operations.len())
+                    .track_executed_block_size_sequence_extension(0, block.body.operations.len())
             })
             .with_execution_context(ChainExecutionContext::Block)?;
 
         if self.is_closed() {
             ensure!(
-                !block.incoming_bundles.is_empty() && block.has_only_rejected_messages(),
+                !block.body.incoming_bundles.is_empty() && block.has_only_rejected_messages(),
                 ChainError::ClosedChain
             );
         }
@@ -719,7 +725,7 @@ where
         let mut mandatory = HashSet::<UserApplicationId>::from_iter(
             app_permissions.mandatory_applications.iter().cloned(),
         );
-        for operation in &block.operations {
+        for operation in &block.body.operations {
             ensure!(
                 app_permissions.can_execute_operations(&operation.application_id()),
                 ChainError::AuthorizedApplications(
@@ -788,9 +794,9 @@ where
                     let _operation_latency = OPERATION_EXECUTION_LATENCY.measure_latency();
                     let context = OperationContext {
                         chain_id,
-                        height: block.height,
+                        height: block.header.height,
                         index: Some(txn_index),
-                        authenticated_signer: block.authenticated_signer,
+                        authenticated_signer: block.header.authenticated_signer,
                         authenticated_caller_id: None,
                     };
                     Box::pin(self.execution_state.execute_operation(
@@ -819,7 +825,7 @@ where
                 .with_execution_context(chain_execution_context)?;
             next_message_index = new_next_message_index;
             let (txn_messages, txn_events) = self
-                .process_execution_outcomes(block.height, txn_outcomes)
+                .process_execution_outcomes(block.header.height, txn_outcomes)
                 .await?;
             if matches!(
                 transaction,
@@ -875,7 +881,7 @@ where
         let maybe_committee = self.execution_state.system.current_committee().into_iter();
         self.manager.get_mut().reset(
             self.execution_state.system.ownership.get(),
-            block.height.try_add_one()?,
+            block.header.height.try_add_one()?,
             local_time,
             maybe_committee.flat_map(|(_, committee)| committee.keys_and_weights()),
         )?;
@@ -900,7 +906,7 @@ where
 
         assert_eq!(
             messages.len(),
-            block.incoming_bundles.len() + block.operations.len()
+            block.body.incoming_bundles.len() + block.body.operations.len()
         );
         let outcome = BlockExecutionOutcome {
             messages,
@@ -927,9 +933,9 @@ where
         #[cfg(with_metrics)]
         let _message_latency = MESSAGE_EXECUTION_LATENCY.measure_latency();
         let context = MessageContext {
-            chain_id: block.chain_id,
+            chain_id: block.header.chain_id,
             is_bouncing: posted_message.is_bouncing(),
-            height: block.height,
+            height: block.header.height,
             certificate_hash: incoming_bundle.bundle.certificate_hash,
             message_id,
             authenticated_signer: posted_message.authenticated_signer,
@@ -968,7 +974,7 @@ where
                 ensure!(
                     !posted_message.is_protected() || self.is_closed(),
                     ChainError::CannotRejectMessage {
-                        chain_id: block.chain_id,
+                        chain_id: block.header.chain_id,
                         origin: Box::new(incoming_bundle.origin.clone()),
                         posted_message: Box::new(posted_message.clone()),
                     }

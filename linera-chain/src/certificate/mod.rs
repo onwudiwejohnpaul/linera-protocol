@@ -62,16 +62,16 @@ impl Certificate {
 
     pub fn height(&self) -> BlockHeight {
         match self {
-            Certificate::Validated(cert) => cert.value().inner().executed_block().block.height,
-            Certificate::Confirmed(cert) => cert.value().inner().executed_block().block.height,
+            Certificate::Validated(cert) => cert.value().inner().executed_block().header.height,
+            Certificate::Confirmed(cert) => cert.value().inner().executed_block().header.height,
             Certificate::Timeout(cert) => cert.inner().height,
         }
     }
 
     pub fn chain_id(&self) -> ChainId {
         match self {
-            Certificate::Validated(cert) => cert.value().inner().executed_block().block.chain_id,
-            Certificate::Confirmed(cert) => cert.value().inner().executed_block().block.chain_id,
+            Certificate::Validated(cert) => cert.value().inner().executed_block().header.chain_id,
+            Certificate::Confirmed(cert) => cert.value().inner().executed_block().header.chain_id,
             Certificate::Timeout(cert) => cert.inner().chain_id,
         }
     }
@@ -129,15 +129,15 @@ impl CertificateValue for ValidatedBlock {
     const KIND: CertificateKind = CertificateKind::Validated;
 
     fn chain_id(&self) -> ChainId {
-        self.executed_block().block.chain_id
+        self.executed_block().header.chain_id
     }
 
     fn epoch(&self) -> Epoch {
-        self.executed_block().block.epoch
+        self.executed_block().header.epoch
     }
 
     fn height(&self) -> BlockHeight {
-        self.executed_block().block.height
+        self.executed_block().header.height
     }
 
     fn required_blob_ids(&self) -> HashSet<BlobId> {
@@ -149,15 +149,15 @@ impl CertificateValue for ConfirmedBlock {
     const KIND: CertificateKind = CertificateKind::Confirmed;
 
     fn chain_id(&self) -> ChainId {
-        self.executed_block().block.chain_id
+        self.executed_block().header.chain_id
     }
 
     fn epoch(&self) -> Epoch {
-        self.executed_block().block.epoch
+        self.executed_block().header.epoch
     }
 
     fn height(&self) -> BlockHeight {
-        self.executed_block().block.height
+        self.executed_block().header.height
     }
 
     fn required_blob_ids(&self) -> HashSet<BlobId> {

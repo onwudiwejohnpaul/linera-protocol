@@ -13,13 +13,13 @@ use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize};
 
 use super::{generic::GenericCertificate, Certificate};
 use crate::{
-    block::{ConfirmedBlock, ConversionError},
-    data_types::{ExecutedBlock, Medium, MessageBundle},
+    block::{Block, ConfirmedBlock, ConversionError},
+    data_types::{Medium, MessageBundle},
 };
 
 impl GenericCertificate<ConfirmedBlock> {
     /// Returns reference to the `ExecutedBlock` contained in this certificate.
-    pub fn executed_block(&self) -> &ExecutedBlock {
+    pub fn executed_block(&self) -> &Block {
         self.inner().executed_block()
     }
 

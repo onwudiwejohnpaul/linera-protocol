@@ -86,8 +86,8 @@ use rand_distr::{Distribution, WeightedAliasIndex};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    block::{ConfirmedBlock, Timeout, ValidatedBlock},
-    data_types::{Block, BlockProposal, ExecutedBlock, LiteVote, Vote},
+    block::{Block, ConfirmedBlock, Timeout, ValidatedBlock},
+    data_types::{BlockProposal, LiteVote, Vote},
     types::{TimeoutCertificate, ValidatedBlockCertificate},
     ChainError,
 };
@@ -252,7 +252,7 @@ impl ChainManager {
 
         // When a block is certified, incrementing its height must succeed.
         ensure!(
-            new_block.height < BlockHeight::MAX,
+            new_block.header.height < BlockHeight::MAX,
             ChainError::InvalidBlockHeight
         );
         let expected_round = match &proposal.validated_block_certificate {
@@ -294,7 +294,7 @@ impl ChainManager {
             {
                 ensure!(
                     old_proposal.content.block == *new_block,
-                    ChainError::HasLockedBlock(new_block.height, Round::Fast)
+                    ChainError::HasLockedBlock(new_block.header.height, Round::Fast)
                 )
             }
         }
@@ -306,7 +306,7 @@ impl ChainManager {
                     .validated_block_certificate
                     .as_ref()
                     .is_some_and(|cert| locked.round <= cert.round),
-                ChainError::HasLockedBlock(locked.executed_block().block.height, locked.round)
+                ChainError::HasLockedBlock(locked.executed_block().header.height, locked.round)
             )
         }
         Ok(Outcome::Accept)
@@ -369,10 +369,10 @@ impl ChainManager {
         &self,
         certificate: &ValidatedBlockCertificate,
     ) -> Result<Outcome, ChainError> {
-        let new_block = &certificate.executed_block().block;
+        let new_block = certificate.hash();
         let new_round = certificate.round;
         if let Some(Vote { value, round, .. }) = &self.confirmed_vote {
-            if value.inner().executed_block().block == *new_block && *round == new_round {
+            if value.hash() == new_block && *round == new_round {
                 return Ok(Outcome::Skip); // We already voted to confirm this block.
             }
         }
@@ -400,7 +400,7 @@ impl ChainManager {
     pub fn create_vote(
         &mut self,
         proposal: BlockProposal,
-        executed_block: ExecutedBlock,
+        executed_block: Block,
         key_pair: Option<&KeyPair>,
         local_time: Timestamp,
         blobs: BTreeMap<BlobId, Blob>,
@@ -431,7 +431,7 @@ impl ChainManager {
             if round.is_fast() {
                 self.validated_vote = None;
                 Some(Either::Right(self.confirmed_vote.insert(Vote::new(
-                    Hashed::new(ConfirmedBlock::new(executed_block)),
+                    Hashed::new(ConfirmedBlock::new(executed_block.into())),
                     round,
                     key_pair,
                 ))))

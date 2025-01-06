@@ -17,8 +17,8 @@ use linera_base::{
     identifiers::{ChainId, UserApplicationId},
 };
 use linera_chain::{
-    data_types::{Block, BlockProposal, ExecutedBlock, MessageBundle, Origin, Target},
-    types::{ConfirmedBlockCertificate, TimeoutCertificate, ValidatedBlockCertificate},
+    data_types::{BlockProposal, MessageBundle, Origin, Target},
+    types::{Block, ConfirmedBlockCertificate, TimeoutCertificate, ValidatedBlockCertificate},
     ChainStateView,
 };
 use linera_execution::{
@@ -86,7 +86,7 @@ where
     StageBlockExecution {
         block: Block,
         #[debug(skip)]
-        callback: oneshot::Sender<Result<(ExecutedBlock, ChainInfoResponse), WorkerError>>,
+        callback: oneshot::Sender<Result<(Block, ChainInfoResponse), WorkerError>>,
     },
 
     /// Process a leader timeout issued for this multi-owner chain.

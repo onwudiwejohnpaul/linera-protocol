@@ -2,33 +2,29 @@
 // Copyright (c) Zefchain Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::{BTreeSet, HashSet},
-    fmt,
-};
+use std::{collections::HashSet, fmt};
 
 use async_graphql::SimpleObject;
 use custom_debug_derive::Debug;
 use linera_base::{
-    bcs,
     crypto::{BcsHashable, BcsSignable, CryptoError, CryptoHash, KeyPair, PublicKey, Signature},
     data_types::{Amount, Blob, BlockHeight, OracleResponse, Round, Timestamp},
     doc_scalar, ensure,
     hashed::Hashed,
     hex_debug,
     identifiers::{
-        Account, BlobId, BlobType, ChainId, ChannelName, Destination, GenericApplicationId,
-        MessageId, Owner, StreamId,
+        Account, BlobId, ChainId, ChannelName, Destination, GenericApplicationId, MessageId, Owner,
+        StreamId,
     },
 };
 use linera_execution::{
-    committee::{Committee, Epoch, ValidatorName},
-    system::OpenChainConfig,
-    Message, MessageKind, Operation, SystemMessage, SystemOperation,
+    committee::{Committee, ValidatorName},
+    Message, MessageKind, Operation, SystemMessage,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    block::Block,
     types::{
         CertificateKind, CertificateValue, GenericCertificate, LiteCertificate,
         ValidatedBlockCertificate,
@@ -39,124 +35,6 @@ use crate::{
 #[cfg(test)]
 #[path = "unit_tests/data_types_tests.rs"]
 mod data_types_tests;
-
-/// A block containing operations to apply on a given chain, as well as the
-/// acknowledgment of a number of incoming messages from other chains.
-/// * Incoming messages must be selected in the order they were
-///   produced by the sending chain, but can be skipped.
-/// * When a block is proposed to a validator, all cross-chain messages must have been
-///   received ahead of time in the inbox of the chain.
-/// * This constraint does not apply to the execution of confirmed blocks.
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize, SimpleObject)]
-pub struct Block {
-    /// The chain to which this block belongs.
-    pub chain_id: ChainId,
-    /// The number identifying the current configuration.
-    pub epoch: Epoch,
-    /// A selection of incoming messages to be executed first. Successive messages of same
-    /// sender and height are grouped together for conciseness.
-    #[debug(skip_if = Vec::is_empty)]
-    pub incoming_bundles: Vec<IncomingBundle>,
-    /// The operations to execute.
-    #[debug(skip_if = Vec::is_empty)]
-    pub operations: Vec<Operation>,
-    /// The block height.
-    pub height: BlockHeight,
-    /// The timestamp when this block was created. This must be later than all messages received
-    /// in this block, but no later than the current time.
-    pub timestamp: Timestamp,
-    /// The user signing for the operations in the block and paying for their execution
-    /// fees. If set, this must be the `owner` in the block proposal. `None` means that
-    /// the default account of the chain is used. This value is also used as recipient of
-    /// potential refunds for the message grants created by the operations.
-    #[debug(skip_if = Option::is_none)]
-    pub authenticated_signer: Option<Owner>,
-    /// Certified hash (see `Certificate` below) of the previous block in the
-    /// chain, if any.
-    pub previous_block_hash: Option<CryptoHash>,
-}
-
-impl Block {
-    /// Returns all the published blob IDs in this block's operations.
-    pub fn published_blob_ids(&self) -> BTreeSet<BlobId> {
-        let mut blob_ids = BTreeSet::new();
-        for operation in &self.operations {
-            if let Operation::System(SystemOperation::PublishDataBlob { blob_hash }) = operation {
-                blob_ids.insert(BlobId::new(*blob_hash, BlobType::Data));
-            }
-            if let Operation::System(SystemOperation::PublishBytecode { bytecode_id }) = operation {
-                blob_ids.extend([
-                    BlobId::new(bytecode_id.contract_blob_hash, BlobType::ContractBytecode),
-                    BlobId::new(bytecode_id.service_blob_hash, BlobType::ServiceBytecode),
-                ]);
-            }
-        }
-
-        blob_ids
-    }
-
-    /// Returns whether the block contains only rejected incoming messages, which
-    /// makes it admissible even on closed chains.
-    pub fn has_only_rejected_messages(&self) -> bool {
-        self.operations.is_empty()
-            && self
-                .incoming_bundles
-                .iter()
-                .all(|message| message.action == MessageAction::Reject)
-    }
-
-    /// Returns an iterator over all incoming [`PostedMessage`]s in this block.
-    pub fn incoming_messages(&self) -> impl Iterator<Item = &PostedMessage> {
-        self.incoming_bundles
-            .iter()
-            .flat_map(|incoming_bundle| &incoming_bundle.bundle.messages)
-    }
-
-    /// Returns the number of incoming messages.
-    pub fn message_count(&self) -> usize {
-        self.incoming_bundles
-            .iter()
-            .map(|im| im.bundle.messages.len())
-            .sum()
-    }
-
-    /// Returns an iterator over all transactions, by index.
-    pub fn transactions(&self) -> impl Iterator<Item = (u32, Transaction<'_>)> {
-        let bundles = self
-            .incoming_bundles
-            .iter()
-            .map(Transaction::ReceiveMessages);
-        let operations = self.operations.iter().map(Transaction::ExecuteOperation);
-        (0u32..).zip(bundles.chain(operations))
-    }
-
-    /// If the block's first message is `OpenChain`, returns the bundle, the message and
-    /// the configuration for the new chain.
-    pub fn starts_with_open_chain_message(
-        &self,
-    ) -> Option<(&IncomingBundle, &PostedMessage, &OpenChainConfig)> {
-        let in_bundle = self.incoming_bundles.first()?;
-        if in_bundle.action != MessageAction::Accept {
-            return None;
-        }
-        let posted_message = in_bundle.bundle.messages.first()?;
-        let config = posted_message.message.matches_open_chain()?;
-        Some((in_bundle, posted_message, config))
-    }
-
-    pub fn check_proposal_size(
-        &self,
-        maximum_block_proposal_size: u64,
-        blobs: &[Blob],
-    ) -> Result<(), ChainError> {
-        let size = bcs::serialized_size(&(self, blobs))?;
-        ensure!(
-            size <= usize::try_from(maximum_block_proposal_size).unwrap_or(usize::MAX),
-            ChainError::BlockProposalTooLarge
-        );
-        Ok(())
-    }
-}
 
 /// A transaction in a block: incoming messages or an operation.
 #[derive(Debug, Clone)]
@@ -399,15 +277,6 @@ impl OutgoingMessage {
 
 impl<'de> BcsHashable<'de> for OutgoingMessage {}
 
-/// A [`Block`], together with the outcome from its execution.
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize, SimpleObject)]
-pub struct ExecutedBlock {
-    pub block: Block,
-    pub outcome: BlockExecutionOutcome,
-}
-
-impl<'de> BcsHashable<'de> for ExecutedBlock {}
-
 /// The messages and the state hash resulting from a [`Block`]'s execution.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize, SimpleObject)]
 #[cfg_attr(with_testing, derive(Default))]
@@ -628,121 +497,9 @@ impl PostedMessage {
     }
 }
 
-impl ExecutedBlock {
-    pub fn messages(&self) -> &Vec<Vec<OutgoingMessage>> {
-        &self.outcome.messages
-    }
-
-    /// Returns the bundles of messages sent via the given medium to the specified
-    /// recipient. Messages originating from different transactions of the original block
-    /// are kept in separate bundles. If the medium is a channel, does not verify that the
-    /// recipient is actually subscribed to that channel.
-    pub fn message_bundles_for<'a>(
-        &'a self,
-        medium: &'a Medium,
-        recipient: ChainId,
-        certificate_hash: CryptoHash,
-    ) -> impl Iterator<Item = (Epoch, MessageBundle)> + 'a {
-        let mut index = 0u32;
-        let block_height = self.block.height;
-        let block_timestamp = self.block.timestamp;
-        let block_epoch = self.block.epoch;
-
-        (0u32..)
-            .zip(self.messages())
-            .filter_map(move |(transaction_index, txn_messages)| {
-                let messages = (index..)
-                    .zip(txn_messages)
-                    .filter(|(_, message)| message.has_destination(medium, recipient))
-                    .map(|(idx, message)| message.clone().into_posted(idx))
-                    .collect::<Vec<_>>();
-                index += txn_messages.len() as u32;
-                (!messages.is_empty()).then(|| {
-                    let bundle = MessageBundle {
-                        height: block_height,
-                        timestamp: block_timestamp,
-                        certificate_hash,
-                        transaction_index,
-                        messages,
-                    };
-                    (block_epoch, bundle)
-                })
-            })
-    }
-
-    /// Returns the `message_index`th outgoing message created by the `operation_index`th operation,
-    /// or `None` if there is no such operation or message.
-    pub fn message_id_for_operation(
-        &self,
-        operation_index: usize,
-        message_index: u32,
-    ) -> Option<MessageId> {
-        let block = &self.block;
-        let transaction_index = block.incoming_bundles.len().checked_add(operation_index)?;
-        if message_index
-            >= u32::try_from(self.outcome.messages.get(transaction_index)?.len()).ok()?
-        {
-            return None;
-        }
-        let first_message_index = u32::try_from(
-            self.outcome
-                .messages
-                .iter()
-                .take(transaction_index)
-                .map(Vec::len)
-                .sum::<usize>(),
-        )
-        .ok()?;
-        let index = first_message_index.checked_add(message_index)?;
-        Some(self.message_id(index))
-    }
-
-    pub fn message_by_id(&self, message_id: &MessageId) -> Option<&OutgoingMessage> {
-        let MessageId {
-            chain_id,
-            height,
-            index,
-        } = message_id;
-        if self.block.chain_id != *chain_id || self.block.height != *height {
-            return None;
-        }
-        let mut index = usize::try_from(*index).ok()?;
-        for messages in self.messages() {
-            if let Some(message) = messages.get(index) {
-                return Some(message);
-            }
-            index -= messages.len();
-        }
-        None
-    }
-
-    /// Returns the message ID belonging to the `index`th outgoing message in this block.
-    pub fn message_id(&self, index: u32) -> MessageId {
-        MessageId {
-            chain_id: self.block.chain_id,
-            height: self.block.height,
-            index,
-        }
-    }
-
-    pub fn required_blob_ids(&self) -> HashSet<BlobId> {
-        let mut blob_ids = self.outcome.oracle_blob_ids();
-        blob_ids.extend(self.block.published_blob_ids());
-        blob_ids
-    }
-
-    pub fn requires_blob(&self, blob_id: &BlobId) -> bool {
-        self.outcome.oracle_blob_ids().contains(blob_id)
-            || self.block.published_blob_ids().contains(blob_id)
-    }
-}
-
 impl BlockExecutionOutcome {
-    pub fn with(self, block: Block) -> ExecutedBlock {
-        ExecutedBlock {
-            block,
-            outcome: self,
-        }
+    pub fn with(self, block: Block) -> Block {
+        unimplemented!("BlockExecutionOutcome::with")
     }
 
     pub fn oracle_blob_ids(&self) -> HashSet<BlobId> {
@@ -801,11 +558,12 @@ impl BlockProposal {
         blobs: Vec<Blob>,
     ) -> Self {
         let lite_cert = validated_block_certificate.lite_certificate().cloned();
-        let executed_block = validated_block_certificate.into_inner().into_inner();
+        let block = validated_block_certificate.into_inner().into_inner();
+        let execution_outcome = block.clone().into();
         let content = ProposalContent {
-            block: executed_block.block,
+            block,
             round,
-            outcome: Some(executed_block.outcome),
+            outcome: Some(execution_outcome),
         };
         let signature = Signature::new(&content, secret);
         Self {

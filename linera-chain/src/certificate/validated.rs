@@ -10,10 +10,7 @@ use serde::{
 };
 
 use super::{generic::GenericCertificate, Certificate};
-use crate::{
-    block::{ConversionError, ValidatedBlock},
-    data_types::ExecutedBlock,
-};
+use crate::block::{Block, ConversionError, ValidatedBlock};
 
 impl GenericCertificate<ValidatedBlock> {
     pub fn requires_blob(&self, blob_id: &BlobId) -> bool {
@@ -26,7 +23,7 @@ impl GenericCertificate<ValidatedBlock> {
     }
 
     /// Returns reference to the `ExecutedBlock` contained in this certificate.
-    pub fn executed_block(&self) -> &ExecutedBlock {
+    pub fn executed_block(&self) -> &Block {
         self.inner().executed_block()
     }
 }
