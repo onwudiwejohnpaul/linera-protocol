@@ -39,7 +39,7 @@ use {
 #[cfg(feature = "benchmark")]
 use {
     linera_base::{
-        crypto::PublicKey,
+        crypto::Ed25519PublicKey,
         data_types::Amount,
         identifiers::{AccountOwner, ApplicationId, Owner},
     },
