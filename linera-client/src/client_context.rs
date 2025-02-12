@@ -8,7 +8,7 @@ use std::{collections::HashSet, sync::Arc};
 use async_trait::async_trait;
 use futures::Future;
 use linera_base::{
-    crypto::Ed25519SecretKey,
+    crypto::ed25519::Ed25519SecretKey,
     data_types::{BlockHeight, Timestamp},
     identifiers::{Account, ChainId},
     ownership::ChainOwnership,
@@ -26,20 +26,10 @@ use linera_rpc::node_provider::{NodeOptions, NodeProvider};
 use linera_storage::Storage;
 use thiserror_context::Context;
 use tracing::{debug, info};
-#[cfg(feature = "fs")]
-use {
-    linera_base::{
-        crypto::CryptoHash,
-        data_types::{BlobContent, Bytecode},
-        identifiers::BytecodeId,
-    },
-    linera_core::client::create_bytecode_blobs,
-    std::{fs, path::PathBuf},
-};
 #[cfg(feature = "benchmark")]
 use {
     linera_base::{
-        crypto::Ed25519PublicKey,
+        crypto::ed25519::Ed25519PublicKey,
         data_types::Amount,
         identifiers::{AccountOwner, ApplicationId, Owner},
     },
@@ -61,6 +51,16 @@ use {
     std::{collections::HashMap, iter},
     tokio::task,
     tracing::{error, trace},
+};
+#[cfg(feature = "fs")]
+use {
+    linera_base::{
+        crypto::CryptoHash,
+        data_types::{BlobContent, Bytecode},
+        identifiers::BytecodeId,
+    },
+    linera_core::client::create_bytecode_blobs,
+    std::{fs, path::PathBuf},
 };
 
 #[cfg(web)]
@@ -1027,8 +1027,8 @@ where
     fn fungible_transfer(
         application_id: ApplicationId,
         chain_id: ChainId,
-        sender: PublicKey,
-        receiver: PublicKey,
+        sender: Ed25519PublicKey,
+        receiver: Ed25519PublicKey,
         amount: Amount,
     ) -> Operation {
         let target_account = fungible::Account {

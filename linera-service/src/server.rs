@@ -14,7 +14,7 @@ use std::{
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use futures::{stream::FuturesUnordered, FutureExt as _, StreamExt, TryFutureExt as _};
-use linera_base::crypto::{CryptoRng, Ed25519SecretKey};
+use linera_base::crypto::{ed25519::Ed25519SecretKey, CryptoRng};
 use linera_client::{
     config::{CommitteeConfig, GenesisConfig, ValidatorConfig, ValidatorServerConfig},
     persistent::{self, Persist},
