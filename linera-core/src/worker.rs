@@ -10,10 +10,11 @@ use std::{
 };
 
 use futures::future::Either;
-#[cfg(with_testing)]
-use linera_base::crypto::ed25519::Ed25519PublicKey;
 use linera_base::{
-    crypto::{ed25519::Ed25519SecretKey, CryptoError, CryptoHash},
+    crypto::{
+        secp256k1::{Secp256k1PublicKey, Secp256k1SecretKey},
+        CryptoError, CryptoHash,
+    },
     data_types::{
         ArithmeticError, Blob, BlockHeight, DecompressionError, Round, UserApplicationDescription,
     },
@@ -293,7 +294,7 @@ where
     #[instrument(level = "trace", skip(nickname, key_pair, storage))]
     pub fn new(
         nickname: String,
-        key_pair: Option<Ed25519SecretKey>,
+        key_pair: Option<Secp256k1SecretKey>,
         storage: StorageClient,
         chain_worker_limit: NonZeroUsize,
     ) -> Self {
@@ -389,7 +390,7 @@ where
 
     #[instrument(level = "trace", skip(self, key_pair))]
     #[cfg(test)]
-    pub(crate) async fn with_key_pair(mut self, key_pair: Option<Arc<Ed25519SecretKey>>) -> Self {
+    pub(crate) async fn with_key_pair(mut self, key_pair: Option<Arc<Secp256k1SecretKey>>) -> Self {
         self.chain_worker_config.key_pair = key_pair;
         self.chain_workers.lock().unwrap().clear();
         self
@@ -1061,7 +1062,7 @@ where
     ///
     /// If the validator doesn't have a key pair assigned to it.
     #[instrument(level = "trace", skip(self))]
-    pub fn public_key(&self) -> Ed25519PublicKey {
+    pub fn public_key(&self) -> Secp256k1PublicKey {
         self.chain_worker_config
             .key_pair()
             .expect(

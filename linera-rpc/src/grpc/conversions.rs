@@ -4,6 +4,7 @@
 use linera_base::{
     crypto::{
         ed25519::{Ed25519PublicKey, Ed25519Signature},
+        secp256k1::{Secp256k1PublicKey, Secp256k1Signature},
         CryptoError, CryptoHash,
     },
     data_types::{BlobContent, BlockHeight},
@@ -627,6 +628,14 @@ impl From<Ed25519PublicKey> for api::PublicKey {
     }
 }
 
+impl From<Secp256k1PublicKey> for api::PublicKey {
+    fn from(public_key: Secp256k1PublicKey) -> Self {
+        Self {
+            bytes: public_key.0.serialize().to_vec(),
+        }
+    }
+}
+
 impl TryFrom<api::PublicKey> for Ed25519PublicKey {
     type Error = GrpcProtoConversionError;
 
@@ -635,10 +644,18 @@ impl TryFrom<api::PublicKey> for Ed25519PublicKey {
     }
 }
 
+impl TryFrom<api::PublicKey> for Secp256k1PublicKey {
+    type Error = GrpcProtoConversionError;
+
+    fn try_from(public_key: api::PublicKey) -> Result<Self, Self::Error> {
+        unimplemented!("Conversion from `api::PublicKey` to `Secp256k1PublicKey`")
+    }
+}
+
 impl From<ValidatorName> for api::PublicKey {
     fn from(validator_name: ValidatorName) -> Self {
         Self {
-            bytes: validator_name.0 .0.to_vec(),
+            bytes: validator_name.0 .0.serialize().to_vec(),
         }
     }
 }
@@ -659,11 +676,27 @@ impl From<Ed25519Signature> for api::Signature {
     }
 }
 
+impl From<Secp256k1Signature> for api::Signature {
+    fn from(signature: Secp256k1Signature) -> Self {
+        Self {
+            bytes: signature.0.serialize_compact().to_vec(),
+        }
+    }
+}
+
 impl TryFrom<api::Signature> for Ed25519Signature {
     type Error = GrpcProtoConversionError;
 
     fn try_from(signature: api::Signature) -> Result<Self, Self::Error> {
         Ok(Self(signature.bytes.as_slice().try_into()?))
+    }
+}
+
+impl TryFrom<api::Signature> for Secp256k1Signature {
+    type Error = GrpcProtoConversionError;
+
+    fn try_from(signature: api::Signature) -> Result<Self, Self::Error> {
+        unimplemented!("Conversion from `api::Signature` to `Secp256k1Signature`")
     }
 }
 
@@ -973,7 +1006,7 @@ pub mod tests {
     use std::{borrow::Cow, fmt::Debug};
 
     use linera_base::{
-        crypto::{ed25519::Ed25519SecretKey, BcsSignable, CryptoHash},
+        crypto::{ secp256k1::Secp256k1KeyPair, BcsSignable, CryptoHash},
         data_types::{Amount, Blob, Round, Timestamp},
     };
     use linera_chain::{
@@ -1010,20 +1043,20 @@ pub mod tests {
 
     #[test]
     pub fn test_public_key() {
-        let public_key = Ed25519SecretKey::generate().public();
+        let public_key = Secp256k1KeyPair::generate().public();
         round_trip_check::<_, api::PublicKey>(public_key);
     }
 
     #[test]
     pub fn test_signature() {
-        let key_pair = Ed25519SecretKey::generate();
-        let signature = Ed25519Signature::new(&Foo("test".into()), &key_pair);
+        let key_pair = Secp256k1KeyPair::generate();
+        let signature = Secp256k1Signature::new(&Foo("test".into()), &key_pair.secret_key);
         round_trip_check::<_, api::Signature>(signature);
     }
 
     #[test]
     pub fn test_owner() {
-        let key_pair = Ed25519SecretKey::generate();
+        let key_pair = Secp256k1KeyPair::generate();
         let owner = Owner::from(key_pair.public());
         round_trip_check::<_, api::Owner>(owner);
     }
@@ -1036,7 +1069,7 @@ pub mod tests {
 
     #[test]
     pub fn validator_name() {
-        let validator_name = ValidatorName::from(Ed25519SecretKey::generate().public());
+        let validator_name = ValidatorName::from(Secp256k1KeyPair::generate().public());
         // This is a correct comparison - `ValidatorNameRpc` does not exist in our
         // proto definitions.
         round_trip_check::<_, api::PublicKey>(validator_name);
@@ -1078,9 +1111,9 @@ pub mod tests {
         let chain_info_response_some = ChainInfoResponse {
             // `info` is bincode so no need to test conversions extensively
             info: chain_info,
-            signature: Some(Ed25519Signature::new(
+            signature: Some(Secp256k1Signature::new(
                 &Foo("test".into()),
-                &Ed25519SecretKey::generate(),
+                &Secp256k1KeyPair::generate().secret_key,
             )),
         };
         round_trip_check::<_, api::ChainInfoResponse>(chain_info_response_some);
@@ -1135,7 +1168,7 @@ pub mod tests {
 
     #[test]
     pub fn test_lite_certificate() {
-        let key_pair = Ed25519SecretKey::generate();
+        let key_pair = Secp256k1KeyPair::generate();
         let certificate = LiteCertificate {
             value: LiteValue {
                 value_hash: CryptoHash::new(&Foo("value".into())),
@@ -1145,7 +1178,7 @@ pub mod tests {
             round: Round::MultiLeader(2),
             signatures: Cow::Owned(vec![(
                 ValidatorName::from(key_pair.public()),
-                Ed25519Signature::new(&Foo("test".into()), &key_pair),
+                Secp256k1Signature::new(&Foo("test".into()), &key_pair.secret_key),
             )]),
         };
         let request = HandleLiteCertRequest {
@@ -1158,7 +1191,7 @@ pub mod tests {
 
     #[test]
     pub fn test_certificate() {
-        let key_pair = Ed25519SecretKey::generate();
+        let key_pair = Secp256k1KeyPair::generate();
         let certificate = ValidatedBlockCertificate::new(
             Hashed::new(ValidatedBlock::new(
                 BlockExecutionOutcome {
@@ -1170,7 +1203,7 @@ pub mod tests {
             Round::MultiLeader(3),
             vec![(
                 ValidatorName::from(key_pair.public()),
-                Ed25519Signature::new(&Foo("test".into()), &key_pair),
+                Secp256k1Signature::new(&Foo("test".into()), &key_pair.secret_key),
             )],
         );
         let request = HandleValidatedCertificateRequest { certificate };
@@ -1203,7 +1236,7 @@ pub mod tests {
 
     #[test]
     pub fn test_block_proposal() {
-        let key_pair = Ed25519SecretKey::generate();
+        let key_pair = Secp256k1KeyPair::generate();
         let outcome = BlockExecutionOutcome {
             state_hash: CryptoHash::new(&Foo("validated".into())),
             ..BlockExecutionOutcome::default()
@@ -1212,22 +1245,22 @@ pub mod tests {
             Hashed::new(ValidatedBlock::new(outcome.clone().with(get_block()))),
             Round::SingleLeader(2),
             vec![(
-                ValidatorName::from(key_pair.public()),
-                Ed25519Signature::new(&Foo("signed".into()), &key_pair),
+                ValidatorName::from(key_pair.public().clone()),
+                Secp256k1Signature::new(&Foo("signed".into()), &key_pair.secret_key),
             )],
         )
         .lite_certificate()
         .cloned();
-        let public_key = Ed25519SecretKey::generate().public();
+        let key_pair = Secp256k1KeyPair::generate();
         let block_proposal = BlockProposal {
             content: ProposalContent {
                 block: get_block(),
                 round: Round::SingleLeader(4),
                 outcome: Some(outcome),
             },
-            owner: Owner::from(public_key),
-            public_key,
-            signature: Ed25519Signature::new(&Foo("test".into()), &Ed25519SecretKey::generate()),
+            owner: Owner::from(key_pair.public()),
+            public_key: key_pair.public().clone(),
+            signature: Secp256k1Signature::new(&Foo("test".into()), &Secp256k1KeyPair::generate().secret_key),
             validated_block_certificate: Some(cert),
         };
 

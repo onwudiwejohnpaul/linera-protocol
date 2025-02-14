@@ -17,7 +17,7 @@ use futures::{
 };
 use linera_base::{
     crypto::{
-        ed25519::{Ed25519PublicKey, Ed25519SecretKey},
+        secp256k1::{Secp256k1KeyPair, Secp256k1PublicKey},
         *,
     },
     data_types::*,
@@ -685,7 +685,7 @@ struct GenesisStorageBuilder {
 
 struct GenesisAccount {
     description: ChainDescription,
-    public_key: Ed25519PublicKey,
+    public_key: Secp256k1PublicKey,
     balance: Amount,
 }
 
@@ -693,7 +693,7 @@ impl GenesisStorageBuilder {
     fn add(
         &mut self,
         description: ChainDescription,
-        public_key: Ed25519PublicKey,
+        public_key: Secp256k1PublicKey,
         balance: Amount,
     ) {
         self.accounts.push(GenesisAccount {
@@ -736,10 +736,10 @@ where
         let mut key_pairs = Vec::new();
         let mut validators = Vec::new();
         for _ in 0..count {
-            let key_pair = Ed25519SecretKey::generate();
-            let name = ValidatorName(key_pair.public());
+            let key_pair = Secp256k1KeyPair::generate();
+            let name = ValidatorName(key_pair.public_key);
             validators.push(name);
-            key_pairs.push(key_pair);
+            key_pairs.push(key_pair.secret_key);
         }
         let initial_committee = Committee::make_simple(validators);
         let mut validator_clients = Vec::new();
@@ -806,8 +806,8 @@ where
         balance: Amount,
     ) -> Result<ChainClient<NodeProvider<B::Storage>, B::Storage>, anyhow::Error> {
         let description = ChainDescription::Root(index);
-        let key_pair = Ed25519SecretKey::generate();
-        let public_key = key_pair.public();
+        let key_pair = Secp256k1KeyPair::generate();
+        let public_key = key_pair.public_key;
         // Remember what's in the genesis store for future clients to join.
         self.genesis_storage_builder
             .add(description, public_key, balance);
@@ -856,7 +856,7 @@ where
             .await
     }
 
-    pub fn genesis_chains(&self) -> Vec<(Ed25519PublicKey, Amount)> {
+    pub fn genesis_chains(&self) -> Vec<(Secp256k1PublicKey, Amount)> {
         let mut result = Vec::new();
         for (i, genesis_account) in self.genesis_storage_builder.accounts.iter().enumerate() {
             assert_eq!(
@@ -894,7 +894,7 @@ where
     pub async fn make_client(
         &mut self,
         chain_id: ChainId,
-        key_pair: Ed25519SecretKey,
+        key_pair: Secp256k1KeyPair,
         block_hash: Option<CryptoHash>,
         block_height: BlockHeight,
     ) -> Result<ChainClient<NodeProvider<B::Storage>, B::Storage>, anyhow::Error> {
@@ -917,7 +917,7 @@ where
         ));
         Ok(builder.create_chain_client(
             chain_id,
-            vec![key_pair],
+            vec![key_pair.secret_key],
             self.admin_id,
             block_hash,
             Timestamp::from(0),

@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, ops::Not};
 use custom_debug_derive::Debug;
 use linera_base::{
     crypto::{
-        ed25519::{Ed25519SecretKey, Ed25519Signature},
+        secp256k1::{Secp256k1SecretKey, Secp256k1Signature},
         BcsSignable, CryptoError, CryptoHash,
     },
     data_types::{Amount, BlockHeight, Round, Timestamp},
@@ -220,7 +220,7 @@ impl ChainInfo {
 #[cfg_attr(with_testing, derive(Eq, PartialEq))]
 pub struct ChainInfoResponse {
     pub info: Box<ChainInfo>,
-    pub signature: Option<Ed25519Signature>,
+    pub signature: Option<Secp256k1Signature>,
 }
 
 /// An internal request between chains within a validator.
@@ -295,20 +295,25 @@ where
 }
 
 impl ChainInfoResponse {
-    pub fn new(info: impl Into<ChainInfo>, key_pair: Option<&Ed25519SecretKey>) -> Self {
+    pub fn new(info: impl Into<ChainInfo>, key_pair: Option<&Secp256k1SecretKey>) -> Self {
         let info = Box::new(info.into());
-        let signature = key_pair.map(|kp| Ed25519Signature::new(&*info, kp));
+        let signature = key_pair.map(|kp| Secp256k1Signature::new(&*info, kp));
         Self { info, signature }
     }
 
     /// Signs the [`ChainInfo`] stored inside this [`ChainInfoResponse`] with the provided
     /// [`KeyPair`].
-    pub fn sign(&mut self, key_pair: &Ed25519SecretKey) {
-        self.signature = Some(Ed25519Signature::new(&*self.info, key_pair));
+    pub fn sign(&mut self, key_pair: &Secp256k1SecretKey) {
+        self.signature = Some(Secp256k1Signature::new(&*self.info, key_pair));
     }
 
     pub fn check(&self, name: &ValidatorName) -> Result<(), CryptoError> {
-        Ed25519Signature::check_optional_signature(self.signature.as_ref(), &*self.info, &name.0)
+        match self.signature.as_ref() {
+            None => Err(CryptoError::MissingSignature {
+                type_name: "ChainInfo".to_string(), // TODO: use HasTypeName
+            }),
+            Some(sig) => sig.check(&*self.info, &name.0),
+        }
     }
 
     /// Returns the committee in the latest epoch.

@@ -12,7 +12,7 @@ use custom_debug_derive::Debug;
 use linera_base::{
     bcs,
     crypto::{
-        ed25519::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature},
+        secp256k1::{Secp256k1PublicKey, Secp256k1SecretKey, Secp256k1Signature},
         BcsHashable, BcsSignable, CryptoError, CryptoHash,
     },
     data_types::{Amount, BlockHeight, OracleResponse, Round, Timestamp},
@@ -310,8 +310,8 @@ pub enum Medium {
 pub struct BlockProposal {
     pub content: ProposalContent,
     pub owner: Owner,
-    pub public_key: Ed25519PublicKey,
-    pub signature: Ed25519Signature,
+    pub public_key: Secp256k1PublicKey,
+    pub signature: Secp256k1Signature,
     #[debug(skip_if = Option::is_none)]
     pub validated_block_certificate: Option<LiteCertificate<'static>>,
 }
@@ -464,17 +464,17 @@ pub struct Vote<T> {
     pub value: Hashed<T>,
     pub round: Round,
     pub validator: ValidatorName,
-    pub signature: Ed25519Signature,
+    pub signature: Secp256k1Signature,
 }
 
 impl<T> Vote<T> {
     /// Use signing key to create a signed object.
-    pub fn new(value: Hashed<T>, round: Round, key_pair: &Ed25519SecretKey) -> Self
+    pub fn new(value: Hashed<T>, round: Round, key_pair: &Secp256k1SecretKey) -> Self
     where
         T: CertificateValue,
     {
         let hash_and_round = VoteValue(value.hash(), round, T::KIND);
-        let signature = Ed25519Signature::new(&hash_and_round, key_pair);
+        let signature = Secp256k1Signature::new(&hash_and_round, key_pair);
         Self {
             value,
             round,
@@ -509,7 +509,7 @@ pub struct LiteVote {
     pub value: LiteValue,
     pub round: Round,
     pub validator: ValidatorName,
-    pub signature: Ed25519Signature,
+    pub signature: Secp256k1Signature,
 }
 
 impl LiteVote {
@@ -775,13 +775,13 @@ pub struct ProposalContent {
 }
 
 impl BlockProposal {
-    pub fn new_initial(round: Round, block: ProposedBlock, secret: &Ed25519SecretKey) -> Self {
+    pub fn new_initial(round: Round, block: ProposedBlock, secret: &Secp256k1SecretKey) -> Self {
         let content = ProposalContent {
             round,
             block,
             outcome: None,
         };
-        let signature = Ed25519Signature::new(&content, secret);
+        let signature = Secp256k1Signature::new(&content, secret);
         Self {
             content,
             public_key: secret.public(),
@@ -794,7 +794,7 @@ impl BlockProposal {
     pub fn new_retry(
         round: Round,
         validated_block_certificate: ValidatedBlockCertificate,
-        secret: &Ed25519SecretKey,
+        secret: &Secp256k1SecretKey,
     ) -> Self {
         let lite_cert = validated_block_certificate.lite_certificate().cloned();
         let block = validated_block_certificate.into_inner().into_inner();
@@ -804,7 +804,7 @@ impl BlockProposal {
             round,
             outcome: Some(executed_block.outcome),
         };
-        let signature = Ed25519Signature::new(&content, secret);
+        let signature = Secp256k1Signature::new(&content, secret);
         Self {
             content,
             public_key: secret.public(),
@@ -815,7 +815,7 @@ impl BlockProposal {
     }
 
     pub fn check_signature(&self) -> Result<(), CryptoError> {
-        self.signature.check(&self.content, self.public_key)
+        self.signature.check(&self.content, &self.public_key)
     }
 
     pub fn required_blob_ids(&self) -> impl Iterator<Item = BlobId> + '_ {
@@ -855,9 +855,9 @@ impl BlockProposal {
 
 impl LiteVote {
     /// Uses the signing key to create a signed object.
-    pub fn new(value: LiteValue, round: Round, key_pair: &Ed25519SecretKey) -> Self {
+    pub fn new(value: LiteValue, round: Round, key_pair: &Secp256k1SecretKey) -> Self {
         let hash_and_round = VoteValue(value.value_hash, round, value.kind);
-        let signature = Ed25519Signature::new(&hash_and_round, key_pair);
+        let signature = Secp256k1Signature::new(&hash_and_round, key_pair);
         Self {
             value,
             round,
@@ -869,7 +869,7 @@ impl LiteVote {
     /// Verifies the signature in the vote.
     pub fn check(&self) -> Result<(), ChainError> {
         let hash_and_round = VoteValue(self.value.value_hash, self.round, self.value.kind);
-        Ok(self.signature.check(&hash_and_round, self.validator.0)?)
+        Ok(self.signature.check(&hash_and_round, &self.validator.0)?)
     }
 }
 
@@ -897,13 +897,13 @@ impl<'a, T> SignatureAggregator<'a, T> {
     pub fn append(
         &mut self,
         validator: ValidatorName,
-        signature: Ed25519Signature,
+        signature: Secp256k1Signature,
     ) -> Result<Option<GenericCertificate<T>>, ChainError>
     where
         T: CertificateValue,
     {
         let hash_and_round = VoteValue(self.partial.hash(), self.partial.round, T::KIND);
-        signature.check(&hash_and_round, validator.0)?;
+        signature.check(&hash_and_round, &validator.0)?;
         // Check that each validator only appears once.
         ensure!(
             !self.used_validators.contains(&validator),
@@ -928,7 +928,7 @@ impl<'a, T> SignatureAggregator<'a, T> {
 
 // Checks if the array slice is strictly ordered. That means that if the array
 // has duplicates, this will return False, even if the array is sorted
-pub(crate) fn is_strictly_ordered(values: &[(ValidatorName, Ed25519Signature)]) -> bool {
+pub(crate) fn is_strictly_ordered<S: PartialEq>(values: &[(ValidatorName, S)]) -> bool {
     values.windows(2).all(|pair| pair[0].0 < pair[1].0)
 }
 
@@ -937,7 +937,7 @@ pub(crate) fn check_signatures(
     value_hash: CryptoHash,
     certificate_kind: CertificateKind,
     round: Round,
-    signatures: &[(ValidatorName, Ed25519Signature)],
+    signatures: &[(ValidatorName, Secp256k1Signature)],
     committee: &Committee,
 ) -> Result<(), ChainError> {
     // Check the quorum.
@@ -961,7 +961,7 @@ pub(crate) fn check_signatures(
     );
     // All that is left is checking signatures!
     let hash_and_round = VoteValue(value_hash, round, certificate_kind);
-    Ed25519Signature::verify_batch(&hash_and_round, signatures.iter().map(|(v, s)| (&v.0, s)))?;
+    Secp256k1Signature::verify_batch(&hash_and_round, signatures.iter().map(|(v, s)| (&v.0, s)))?;
     Ok(())
 }
 

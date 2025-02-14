@@ -11,7 +11,7 @@ use std::{num::NonZeroUsize, sync::Arc};
 use dashmap::DashMap;
 use futures::FutureExt as _;
 use linera_base::{
-    crypto::ed25519::Ed25519SecretKey,
+    crypto::secp256k1::{Secp256k1KeyPair, Secp256k1SecretKey},
     data_types::{Amount, ApplicationPermissions, Timestamp},
     identifiers::{ApplicationId, BytecodeId, ChainDescription, ChainId, MessageId, Owner},
     ownership::ChainOwnership,
@@ -43,7 +43,7 @@ use crate::ContractAbi;
 /// # });
 /// ```
 pub struct TestValidator {
-    key_pair: Ed25519SecretKey,
+    key_pair: Secp256k1SecretKey,
     committee: Committee,
     storage: DbStorage<MemoryStore, TestClock>,
     worker: WorkerState<DbStorage<MemoryStore, TestClock>>,
@@ -67,8 +67,8 @@ impl Clone for TestValidator {
 impl TestValidator {
     /// Creates a new [`TestValidator`].
     pub async fn new() -> Self {
-        let key_pair = Ed25519SecretKey::generate();
-        let committee = Committee::make_simple(vec![ValidatorName(key_pair.public())]);
+        let key_pair = Secp256k1KeyPair::generate();
+        let committee = Committee::make_simple(vec![ValidatorName(key_pair.public_key)]);
         let wasm_runtime = Some(WasmRuntime::default());
         let storage = DbStorage::<MemoryStore, _>::make_test_storage(wasm_runtime)
             .now_or_never()
@@ -76,13 +76,13 @@ impl TestValidator {
         let clock = storage.clock().clone();
         let worker = WorkerState::new(
             "Single validator node".to_string(),
-            Some(key_pair.copy()),
+            Some(key_pair.secret_key.copy()),
             storage.clone(),
             NonZeroUsize::new(20).expect("Chain worker limit should not be zero"),
         );
 
         let validator = TestValidator {
-            key_pair,
+            key_pair: key_pair.secret_key,
             committee,
             storage,
             worker,
@@ -155,7 +155,7 @@ impl TestValidator {
     }
 
     /// Returns the keys this test validator uses for signing certificates.
-    pub fn key_pair(&self) -> &Ed25519SecretKey {
+    pub fn key_pair(&self) -> &Secp256k1SecretKey {
         &self.key_pair
     }
 
@@ -169,11 +169,11 @@ impl TestValidator {
     /// Creates a new microchain and returns the [`ActiveChain`] that can be used to add blocks to
     /// it.
     pub async fn new_chain(&self) -> ActiveChain {
-        let key_pair = Ed25519SecretKey::generate();
+        let key_pair = Secp256k1KeyPair::generate();
         let description = self
-            .request_new_chain_from_admin_chain(key_pair.public().into())
+            .request_new_chain_from_admin_chain(key_pair.public_key.into())
             .await;
-        let chain = ActiveChain::new(key_pair, description, self.clone());
+        let chain = ActiveChain::new(key_pair.secret_key, description, self.clone());
 
         chain.handle_received_messages().await;
 
@@ -224,7 +224,7 @@ impl TestValidator {
 
     /// Creates the root admin microchain and returns the [`ActiveChain`] map with it.
     async fn create_admin_chain(&self) {
-        let key_pair = Ed25519SecretKey::generate();
+        let key_pair = Secp256k1KeyPair::generate();
         let description = ChainDescription::Root(0);
 
         self.worker()
@@ -233,14 +233,14 @@ impl TestValidator {
                 self.committee.clone(),
                 ChainId::root(0),
                 description,
-                key_pair.public().into(),
+                key_pair.public_key.into(),
                 Amount::MAX,
                 Timestamp::from(0),
             )
             .await
             .expect("Failed to create root admin chain");
 
-        let chain = ActiveChain::new(key_pair, description, self.clone());
+        let chain = ActiveChain::new(key_pair.secret_key, description, self.clone());
 
         self.chains.insert(description.into(), chain);
     }

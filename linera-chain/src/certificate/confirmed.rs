@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use linera_base::{
-    crypto::ed25519::Ed25519Signature,
+    crypto::secp256k1::Secp256k1Signature,
     data_types::Round,
     hashed::Hashed,
     identifiers::{BlobId, ChainId, MessageId},
@@ -92,7 +92,7 @@ impl<'de> Deserialize<'de> for GenericCertificate<ConfirmedBlock> {
         struct Helper {
             value: Hashed<ConfirmedBlock>,
             round: Round,
-            signatures: Vec<(ValidatorName, Ed25519Signature)>,
+            signatures: Vec<(ValidatorName, Secp256k1Signature)>,
         }
 
         let helper = Helper::deserialize(deserializer)?;

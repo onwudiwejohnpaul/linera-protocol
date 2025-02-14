@@ -8,7 +8,7 @@ use std::{collections::HashSet, sync::Arc};
 use async_trait::async_trait;
 use futures::Future;
 use linera_base::{
-    crypto::ed25519::Ed25519SecretKey,
+    crypto::{ed25519::Ed25519SecretKey, secp256k1::Secp256k1SecretKey},
     data_types::{BlockHeight, Timestamp},
     identifiers::{Account, ChainId},
     ownership::ChainOwnership,
@@ -320,7 +320,7 @@ where
     pub async fn update_wallet_for_new_chain(
         &mut self,
         chain_id: ChainId,
-        key_pair: Option<Ed25519SecretKey>,
+        key_pair: Option<Secp256k1SecretKey>,
         timestamp: Timestamp,
     ) -> Result<(), Error> {
         self.update_wallet_for_new_chain_internal(chain_id, key_pair, timestamp)
@@ -330,7 +330,7 @@ where
     async fn update_wallet_for_new_chain_internal(
         &mut self,
         chain_id: ChainId,
-        key_pair: Option<Ed25519SecretKey>,
+        key_pair: Option<Secp256k1SecretKey>,
         timestamp: Timestamp,
     ) -> Result<(), Error> {
         if self.wallet.get(chain_id).is_none() {

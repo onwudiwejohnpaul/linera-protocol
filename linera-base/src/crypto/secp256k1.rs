@@ -10,7 +10,7 @@ use once_cell::sync::Lazy;
 use secp256k1::{self, All, Message, Secp256k1};
 use serde::{Deserialize, Serialize};
 
-use super::{BcsSignable, CryptoError, CryptoHash, HasTypeName};
+use super::{BcsHashable, BcsSignable, CryptoError, CryptoHash, HasTypeName};
 use crate::doc_scalar;
 
 /// Static Secp256k1 context for reuse.
@@ -20,7 +20,7 @@ pub static SECP256K1: Lazy<Secp256k1<All>> = Lazy::new(secp256k1::Secp256k1::new
 pub struct Secp256k1SecretKey(pub secp256k1::SecretKey);
 
 /// A secp256k1 public key.
-#[derive(Eq, PartialEq, Copy, Clone)]
+#[derive(Eq, PartialEq, Copy, Clone, PartialOrd, Ord, Hash)]
 pub struct Secp256k1PublicKey(pub secp256k1::PublicKey);
 
 /// Secp256k1 public/private key pair.
@@ -124,6 +124,8 @@ impl fmt::Debug for Secp256k1PublicKey {
     }
 }
 
+impl<'de> BcsHashable<'de> for Secp256k1PublicKey {}
+
 impl Secp256k1KeyPair {
     #[cfg(all(with_getrandom, with_testing))]
     /// Generates a new key-pair.
@@ -141,12 +143,25 @@ impl Secp256k1KeyPair {
             public_key: Secp256k1PublicKey(pk),
         }
     }
+
+    /// Returns public key for the key-pair.
+    pub fn public(&self) -> &Secp256k1PublicKey {
+        &self.public_key
+    }
 }
 
 impl Secp256k1SecretKey {
     /// Returns a public key for the given secret key.
-    pub fn to_public(&self) -> Secp256k1PublicKey {
+    pub fn public(&self) -> Secp256k1PublicKey {
         Secp256k1PublicKey(self.0.public_key(&SECP256K1))
+    }
+
+    /// Copies the key-pair, **including the secret key**.
+    ///
+    /// The `Clone` and `Copy` traits are deliberately not implemented for `KeyPair` to prevent
+    /// accidental copies of secret keys.
+    pub fn copy(&self) -> Secp256k1SecretKey {
+        Secp256k1SecretKey(self.0.clone())
     }
 }
 
@@ -154,7 +169,14 @@ impl Secp256k1PublicKey {
     /// Returns a public key for the given secret key.
     #[allow(dead_code)]
     fn from_secret_key(secret: &Secp256k1SecretKey) -> Self {
-        secret.to_public()
+        secret.public()
+    }
+
+    /// A fake public key used for testing.
+    #[cfg(with_testing)]
+    pub fn test_key(name: u8) -> Secp256k1PublicKey {
+        let addr = [name; secp256k1::constants::PUBLIC_KEY_SIZE];
+        Secp256k1PublicKey(secp256k1::PublicKey::from_slice(&addr).unwrap())
     }
 }
 
@@ -169,6 +191,24 @@ impl Secp256k1Signature {
         let message = Message::from_digest(CryptoHash::new(value).as_bytes().0);
         let signature = secp.sign_ecdsa(&message, &secret.0);
         Secp256k1Signature(signature)
+    }
+
+    /// Verifies a batch of signatures.
+    pub fn verify_batch<'a, 'de, T, I>(value: &'a T, votes: I) -> Result<(), CryptoError>
+    where
+        T: BcsSignable<'de>,
+        I: IntoIterator<Item = (&'a Secp256k1PublicKey, &'a Secp256k1Signature)>,
+    {
+        let message = Message::from_digest(CryptoHash::new(value).as_bytes().0);
+        for (author, signature) in votes {
+            SECP256K1
+                .verify_ecdsa(&message, &signature.0, &author.0)
+                .map_err(|error| CryptoError::InvalidSignature {
+                    error: error.to_string(),
+                    type_name: T::type_name().to_string(),
+                })?;
+        }
+        Ok(())
     }
 
     /// Checks a signature.

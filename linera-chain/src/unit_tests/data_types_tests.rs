@@ -2,7 +2,7 @@
 // Copyright (c) Zefchain Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use linera_base::data_types::Amount;
+use linera_base::{crypto::secp256k1::Secp256k1KeyPair, data_types::Amount};
 
 use super::*;
 use crate::{
@@ -12,8 +12,8 @@ use crate::{
 
 #[test]
 fn test_signed_values() {
-    let key1 = Ed25519SecretKey::generate();
-    let key2 = Ed25519SecretKey::generate();
+    let key1 = Secp256k1KeyPair::generate().secret_key;
+    let key2 = Secp256k1KeyPair::generate().secret_key;
     let name1 = ValidatorName(key1.public());
 
     let block =
@@ -81,9 +81,9 @@ fn test_hashes() {
 
 #[test]
 fn test_certificates() {
-    let key1 = Ed25519SecretKey::generate();
-    let key2 = Ed25519SecretKey::generate();
-    let key3 = Ed25519SecretKey::generate();
+    let key1 = Secp256k1KeyPair::generate().secret_key;
+    let key2 = Secp256k1KeyPair::generate().secret_key;
+    let key3 = Secp256k1KeyPair::generate().secret_key;
     let name1 = ValidatorName(key1.public());
     let name2 = ValidatorName(key2.public());
 

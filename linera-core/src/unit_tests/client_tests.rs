@@ -8,7 +8,7 @@ mod wasm;
 use assert_matches::assert_matches;
 use futures::StreamExt;
 use linera_base::{
-    crypto::ed25519::Ed25519SecretKey,
+    crypto::secp256k1::Secp256k1KeyPair,
     data_types::*,
     identifiers::{Account, AccountOwner, ChainId, MessageId, Owner},
     ownership::{ChainOwnership, TimeoutConfig},
@@ -273,9 +273,13 @@ where
         .await?
         .with_policy(ResourceControlPolicy::fuel_and_block());
     let sender = builder.add_root_chain(1, Amount::from_tokens(4)).await?;
-    let new_key_pair = Ed25519SecretKey::generate();
+    let new_key_pair = Secp256k1KeyPair::generate();
     let new_owner = Owner::from(new_key_pair.public());
-    let certificate = sender.rotate_key_pair(new_key_pair).await.unwrap().unwrap();
+    let certificate = sender
+        .rotate_key_pair(new_key_pair.secret_key)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(sender.next_block_height(), BlockHeight::from(1));
     assert!(sender.pending_proposal().is_none());
     assert_eq!(sender.identity().await.unwrap(), new_owner);
@@ -311,15 +315,12 @@ where
         .with_policy(ResourceControlPolicy::fuel_and_block());
     let sender = builder.add_root_chain(1, Amount::from_tokens(4)).await?;
 
-    let new_owner = Ed25519SecretKey::generate().public().into();
+    let new_owner = Secp256k1KeyPair::generate().public().into();
     let certificate = sender.transfer_ownership(new_owner).await.unwrap().unwrap();
     assert_eq!(sender.next_block_height(), BlockHeight::from(1));
     assert!(sender.pending_proposal().is_none());
     assert_matches!(
-        sender
-            .key_pair()
-            .await
-            .map(|kp| Ed25519SecretKey::public(&kp)), // KeyPair isn't Debug; using PublicKey.
+        sender.key_pair().await.map(|kp| kp.public()), // KeyPair isn't Debug; using PublicKey.
         Err(ChainClientError::CannotFindKeyForChain(_))
     );
     assert_eq!(
@@ -354,7 +355,7 @@ where
 {
     let mut builder = TestBuilder::new(storage_builder, 4, 0).await?;
     let sender = builder.add_root_chain(1, Amount::from_tokens(4)).await?;
-    let new_key_pair = Ed25519SecretKey::generate();
+    let new_key_pair = Secp256k1KeyPair::generate();
     let new_owner = new_key_pair.public().into();
     let certificate = sender
         .share_ownership(new_owner, 100)
@@ -461,7 +462,7 @@ where
     // New chains use the admin chain to verify their creation certificate.
     let _admin = builder.add_root_chain(0, Amount::ZERO).await?;
     let sender = builder.add_root_chain(1, Amount::from_tokens(4)).await?;
-    let new_key_pair = Ed25519SecretKey::generate();
+    let new_key_pair = Secp256k1KeyPair::generate();
     // Open the new chain.
     let (message_id, certificate) = sender
         .open_chain(
@@ -524,7 +525,7 @@ where
     let _admin = builder.add_root_chain(0, Amount::ZERO).await?;
     let sender = builder.add_root_chain(1, Amount::from_tokens(4)).await?;
     let parent = builder.add_root_chain(2, Amount::ZERO).await?;
-    let new_key_pair = Ed25519SecretKey::generate();
+    let new_key_pair = Secp256k1KeyPair::generate();
     let new_id = ChainId::child(MessageId {
         chain_id: parent.chain_id(),
         height: BlockHeight::ZERO,
@@ -604,7 +605,7 @@ where
     // New chains use the admin chain to verify their creation certificate.
     let _admin = builder.add_root_chain(0, Amount::ZERO).await?;
     let sender = builder.add_root_chain(1, Amount::from_tokens(4)).await?;
-    let new_key_pair = Ed25519SecretKey::generate();
+    let new_key_pair = Secp256k1KeyPair::generate();
     let new_id = ChainId::child(MessageId {
         chain_id: sender.chain_id(),
         height: BlockHeight::from(1),
@@ -678,7 +679,7 @@ where
     // New chains use the admin chain to verify their creation certificate.
     let _admin = builder.add_root_chain(0, Amount::ZERO).await?;
     let sender = builder.add_root_chain(1, Amount::from_tokens(4)).await?;
-    let new_key_pair = Ed25519SecretKey::generate();
+    let new_key_pair = Secp256k1KeyPair::generate();
     // Open the new chain. We are both regular and super owner.
     let ownership = ChainOwnership::single(new_key_pair.public().into())
         .with_regular_owner(new_key_pair.public().into(), 100);
@@ -1269,8 +1270,8 @@ where
     let client1_a = builder.add_root_chain(1, Amount::ZERO).await?;
     let chain_id1 = client1_a.chain_id();
     let owner1_a = client1_a.public_key().await.unwrap().into();
-    let key_pair1_b = Ed25519SecretKey::generate();
-    let owner1_b = key_pair1_b.public().into();
+    let key_pair1_b = Secp256k1KeyPair::generate();
+    let owner1_b = key_pair1_b.public_key.into();
 
     let owners = [(owner1_a, 50), (owner1_b, 50)];
     let ownership = ChainOwnership::multiple(owners, 10, TimeoutConfig::default());
@@ -1288,7 +1289,7 @@ where
     let client2_a = builder.add_root_chain(2, Amount::from_tokens(10)).await?;
     let chain_id2 = client2_a.chain_id();
     let owner2_a = client2_a.public_key().await.unwrap().into();
-    let key_pair2_b = Ed25519SecretKey::generate();
+    let key_pair2_b = Secp256k1KeyPair::generate();
     let owner2_b = key_pair2_b.public().into();
 
     let owners = [(owner2_a, 50), (owner2_b, 50)];
@@ -1460,8 +1461,8 @@ where
     let client2_a = builder.add_root_chain(2, Amount::from_tokens(10)).await?;
     let chain_id2 = client2_a.chain_id();
     let owner2_a = Owner::from(client2_a.public_key().await.unwrap());
-    let key_pair2_b = Ed25519SecretKey::generate();
-    let owner2_b = Owner::from(key_pair2_b.public());
+    let key_pair2_b = Secp256k1KeyPair::generate();
+    let owner2_b = Owner::from(key_pair2_b.public_key);
     let owner_change_op = Operation::System(SystemOperation::ChangeOwnership {
         super_owners: Vec::new(),
         owners: vec![(owner2_a, 50), (owner2_b, 50)],
@@ -1589,9 +1590,9 @@ where
     let client3_a = builder.add_root_chain(3, Amount::from_tokens(10)).await?;
     let chain_id3 = client3_a.chain_id();
     let owner3_a = Owner::from(client3_a.public_key().await.unwrap());
-    let key_pair3_b = Ed25519SecretKey::generate();
+    let key_pair3_b = Secp256k1KeyPair::generate();
     let owner3_b = Owner::from(key_pair3_b.public());
-    let key_pair3_c = Ed25519SecretKey::generate();
+    let key_pair3_c = Secp256k1KeyPair::generate();
     let owner3_c = Owner::from(key_pair3_c.public());
     let owner_change_op = Operation::System(SystemOperation::ChangeOwnership {
         super_owners: Vec::new(),
@@ -1835,7 +1836,7 @@ where
     let client = builder.add_root_chain(1, Amount::from_tokens(3)).await?;
     let chain_id = client.chain_id();
     let owner0 = client.public_key().await.unwrap().into();
-    let owner1 = Ed25519SecretKey::generate().public().into();
+    let owner1 = Secp256k1KeyPair::generate().public().into();
 
     let owners = [(owner0, 100), (owner1, 100)];
     let ownership = ChainOwnership::multiple(owners, 0, TimeoutConfig::default());
@@ -1949,7 +1950,7 @@ where
     let client0 = builder.add_root_chain(1, Amount::from_tokens(10)).await?;
     let chain_id = client0.chain_id();
     let owner0 = client0.public_key().await.unwrap().into();
-    let key_pair1 = Ed25519SecretKey::generate();
+    let key_pair1 = Secp256k1KeyPair::generate();
     let owner1 = key_pair1.public().into();
 
     let owners = [(owner0, 100), (owner1, 100)];
@@ -2088,7 +2089,7 @@ where
     let client0 = builder.add_root_chain(1, Amount::from_tokens(10)).await?;
     let chain_id = client0.chain_id();
     let owner0 = client0.public_key().await.unwrap().into();
-    let key_pair1 = Ed25519SecretKey::generate();
+    let key_pair1 = Secp256k1KeyPair::generate();
     let owner1 = key_pair1.public().into();
 
     let owners = [(owner0, 100), (owner1, 100)];
